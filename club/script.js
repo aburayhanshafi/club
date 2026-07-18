@@ -4,68 +4,69 @@ const ctx = canvas.getContext('2d');
 // Form inputs
 const imageUpload = document.getElementById('image-upload');
 const zoomSlider = document.getElementById('zoom-slider');
-const topLeftInput = document.getElementById('top-left-text');
-const topRightInput = document.getElementById('top-right-text');
-const bigTextInput = document.getElementById('big-text');
-const bottomTitleInput = document.getElementById('bottom-title');
-const bottomBodyInput = document.getElementById('bottom-body');
+const userNameInput = document.getElementById('user-name');
 const downloadBtn = document.getElementById('download-btn');
+const activeLayerHint = document.getElementById('active-layer-indicator');
 
 // State
-let userImage = null;
-let imgX = 0;
-let imgY = 0;
-let imgScale = 1;
+let templateImg = null;
+let userPhoto = null;
+
+let photoX = 0, photoY = 0, photoScale = 1;
+
 let isDragging = false;
 let startX, startY;
+// 'photo'
+let activeLayer = 'photo'; 
 
 // Constants for layout
 const CANVAS_WIDTH = 1080;
 const CANVAS_HEIGHT = 1350;
-const BEIGE_COLOR = '#e3d5c5'; // Matched from reference
-const DARK_TEXT = '#1a1a1a';
 
-// Offscreen canvas for the overlay mask
-const overlayCanvas = document.createElement('canvas');
-overlayCanvas.width = CANVAS_WIDTH;
-overlayCanvas.height = CANVAS_HEIGHT;
-const overlayCtx = overlayCanvas.getContext('2d');
+// Layout coordinates
+const PHOTO_BOX = { x: 75, y: 300, w: 460, h: 560, radius: 80 };
+const NAME_BOX = { x: 50, y: 880, w: 510, h: 140 };
 
-// Initial draw
-draw();
+// Initial setup
+loadTemplate();
 
-// Event Listeners for controls
-imageUpload.addEventListener('change', handleImageUpload);
-zoomSlider.addEventListener('input', (e) => {
-    imgScale = parseFloat(e.target.value);
-    draw();
-});
-topLeftInput.addEventListener('input', draw);
-topRightInput.addEventListener('input', draw);
-bigTextInput.addEventListener('input', draw);
-bottomTitleInput.addEventListener('input', draw);
-bottomBodyInput.addEventListener('input', draw);
+// Event Listeners
+imageUpload.addEventListener('change', (e) => handleImageUpload(e, 'photo'));
+zoomSlider.addEventListener('input', (e) => { photoScale = parseFloat(e.target.value); draw(); });
+userNameInput.addEventListener('input', draw);
 downloadBtn.addEventListener('click', downloadCanvas);
 
-// Canvas Drag Events
+// Drag Events
 canvas.addEventListener('mousedown', startDrag);
 canvas.addEventListener('mousemove', drag);
 window.addEventListener('mouseup', endDrag);
 
-canvas.addEventListener('touchstart', (e) => {
-    if(e.touches.length === 1) {
-        startDrag(e.touches[0]);
-    }
-}, {passive: false});
-canvas.addEventListener('touchmove', (e) => {
-    if(e.touches.length === 1) {
-        e.preventDefault(); // Prevent scrolling
-        drag(e.touches[0]);
-    }
-}, {passive: false});
+canvas.addEventListener('touchstart', (e) => { if(e.touches.length === 1) startDrag(e.touches[0]); }, {passive: false});
+canvas.addEventListener('touchmove', (e) => { if(e.touches.length === 1) { e.preventDefault(); drag(e.touches[0]); } }, {passive: false});
 window.addEventListener('touchend', endDrag);
 
-function handleImageUpload(e) {
+function loadTemplate() {
+    const img = new Image();
+    img.onload = () => {
+        templateImg = img;
+        draw();
+    };
+    // Tries to load template.jpg from the same directory
+    img.src = 'template.jpg';
+    
+    // Error handling if not found
+    img.onerror = () => {
+        console.warn("template.jpg not found in the same folder. Waiting for user to upload it.");
+        ctx.fillStyle = '#0b0629';
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        ctx.fillStyle = '#f7d23a';
+        ctx.font = '30px Inter';
+        ctx.textAlign = 'center';
+        ctx.fillText('Please place template.jpg in the folder!', CANVAS_WIDTH/2, CANVAS_HEIGHT/2);
+    };
+}
+
+function handleImageUpload(e, type) {
     const file = e.target.files[0];
     if (!file) return;
 
@@ -73,23 +74,21 @@ function handleImageUpload(e) {
     reader.onload = (event) => {
         const img = new Image();
         img.onload = () => {
-            userImage = img;
+            userPhoto = img;
+            const scaleX = PHOTO_BOX.w / img.width;
+            const scaleY = PHOTO_BOX.h / img.height;
+            photoScale = Math.max(scaleX, scaleY);
+            photoX = PHOTO_BOX.x + (PHOTO_BOX.w - img.width * photoScale) / 2;
+            photoY = PHOTO_BOX.y + (PHOTO_BOX.h - img.height * photoScale) / 2;
             
-            // Calculate initial scale to cover the canvas
-            const scaleX = CANVAS_WIDTH / img.width;
-            const scaleY = CANVAS_HEIGHT / img.height;
-            imgScale = Math.max(scaleX, scaleY);
+            zoomSlider.min = photoScale * 0.2;
+            zoomSlider.max = photoScale * 4;
+            zoomSlider.value = photoScale;
             
-            // Center image
-            imgX = (CANVAS_WIDTH - img.width * imgScale) / 2;
-            imgY = (CANVAS_HEIGHT - img.height * imgScale) / 2;
-            
-            // Reset slider
-            zoomSlider.min = imgScale * 0.5;
-            zoomSlider.max = imgScale * 3;
-            zoomSlider.value = imgScale;
+            activeLayer = 'photo';
 
             document.querySelector('.canvas-overlay-hint').style.display = 'none';
+            showActiveLayerIndicator();
             draw();
         };
         img.src = event.target.result;
@@ -97,26 +96,47 @@ function handleImageUpload(e) {
     reader.readAsDataURL(file);
 }
 
-function startDrag(e) {
-    if (!userImage) return;
-    isDragging = true;
+function showActiveLayerIndicator() {
+    activeLayerHint.textContent = `Moving: ${activeLayer === 'photo' ? 'Your Photo' : 'Club Logo'}`;
+    activeLayerHint.classList.add('show');
+    setTimeout(() => {
+        activeLayerHint.classList.remove('show');
+    }, 2000);
+}
+
+function getEventCoords(e) {
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
+    return {
+        x: (e.clientX - rect.left) * scaleX,
+        y: (e.clientY - rect.top) * scaleY
+    };
+}
+
+function startDrag(e) {
+    const {x, y} = getEventCoords(e);
     
-    startX = (e.clientX - rect.left) * scaleX - imgX;
-    startY = (e.clientY - rect.top) * scaleY - imgY;
+    // Determine which layer user clicked on based on bounding boxes
+    if (x >= PHOTO_BOX.x && x <= PHOTO_BOX.x + PHOTO_BOX.w && y >= PHOTO_BOX.y && y <= PHOTO_BOX.y + PHOTO_BOX.h) {
+        if (userPhoto) {
+            activeLayer = 'photo';
+            isDragging = true;
+            startX = x - photoX;
+            startY = y - photoY;
+            showActiveLayerIndicator();
+        }
+    }
 }
 
 function drag(e) {
-    if (!isDragging || !userImage) return;
+    if (!isDragging) return;
+    const {x, y} = getEventCoords(e);
     
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    
-    imgX = (e.clientX - rect.left) * scaleX - startX;
-    imgY = (e.clientY - rect.top) * scaleY - startY;
+    if (activeLayer === 'photo' && userPhoto) {
+        photoX = x - startX;
+        photoY = y - startY;
+    }
     
     draw();
 }
@@ -125,146 +145,107 @@ function endDrag() {
     isDragging = false;
 }
 
+function drawChamferedRect(ctx, x, y, width, height, radius) {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.lineTo(x + width, y + radius);
+    ctx.lineTo(x + width, y + height - radius);
+    ctx.lineTo(x + width - radius, y + height);
+    ctx.lineTo(x + radius, y + height);
+    ctx.lineTo(x, y + height - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.closePath();
+}
+
+function drawRoundedRect(ctx, x, y, width, height, radius) {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.arcTo(x + width, y, x + width, y + radius, radius);
+    ctx.lineTo(x + width, y + height - radius);
+    ctx.arcTo(x + width, y + height, x + width - radius, y + height, radius);
+    ctx.lineTo(x + radius, y + height);
+    ctx.arcTo(x, y + height, x, y + height - radius, radius);
+    ctx.lineTo(x, y + radius);
+    ctx.arcTo(x, y, x + radius, y, radius);
+    ctx.closePath();
+}
+
 function draw() {
-    // 1. Clear Main Canvas
-    ctx.fillStyle = '#111';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    // 2. Draw User Image
-    if (userImage) {
-        ctx.save();
-        ctx.translate(imgX, imgY);
-        ctx.scale(imgScale, imgScale);
-        ctx.drawImage(userImage, 0, 0);
-        ctx.restore();
+    // 1. Draw Template Image
+    if (templateImg) {
+        ctx.drawImage(templateImg, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     } else {
-        // Placeholder background if no image
-        ctx.fillStyle = '#222';
+        ctx.fillStyle = '#0b0629';
         ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-        ctx.fillStyle = '#444';
-        ctx.font = '40px Inter';
+        return; // Don't draw further if no template
+    }
+
+    // 2. Draw User Photo (Masked)
+    if (userPhoto) {
+        ctx.save();
+        // Create the chamfered clip path
+        drawChamferedRect(ctx, PHOTO_BOX.x, PHOTO_BOX.y, PHOTO_BOX.w, PHOTO_BOX.h, PHOTO_BOX.radius);
+        
+        // Fill it with a base color just in case (erases old photo)
+        ctx.fillStyle = '#100b46';
+        ctx.fill();
+        
+        ctx.clip();
+        
+        // Draw the image
+        ctx.translate(photoX, photoY);
+        ctx.scale(photoScale, photoScale);
+        ctx.drawImage(userPhoto, 0, 0);
+        ctx.restore();
+        
+        // Draw White Border around it
+        ctx.save();
+        drawChamferedRect(ctx, PHOTO_BOX.x, PHOTO_BOX.y, PHOTO_BOX.w, PHOTO_BOX.h, PHOTO_BOX.radius);
+        ctx.lineWidth = 10;
+        ctx.strokeStyle = '#ffffff';
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // 3. Mask Old Name and Draw New Name
+    if (userNameInput.value.trim() !== '') {
+        // Erase old name with a gradient or solid color
+        // The background color there is a deep purple ~ #1a0f4a
+        // Let's use a soft blurred rect or solid fill to blend in.
+        ctx.save();
+        ctx.fillStyle = '#0e0b3e'; // Approximated from typical Robolution bg
+        // Draw a rectangle over the old name
+        ctx.fillRect(NAME_BOX.x, NAME_BOX.y, NAME_BOX.w, NAME_BOX.h);
+        
+        // Soft edges to blend
+        ctx.shadowColor = '#0e0b3e';
+        ctx.shadowBlur = 20;
+        ctx.fillRect(NAME_BOX.x, NAME_BOX.y, NAME_BOX.w, NAME_BOX.h);
+        ctx.restore();
+
+        // Draw new name
+        ctx.fillStyle = '#ffffff';
         ctx.textAlign = 'center';
-        ctx.fillText('Upload an image', CANVAS_WIDTH/2 - 150, CANVAS_HEIGHT/2);
+        ctx.textBaseline = 'top';
+        ctx.font = '900 48px Inter'; // Very bold font
+        
+        const nameLines = userNameInput.value.split('\\n');
+        let textY = NAME_BOX.y + 15;
+        
+        nameLines.forEach(line => {
+            ctx.fillText(line, PHOTO_BOX.x + (PHOTO_BOX.w / 2), textY);
+            textY += 55;
+        });
     }
 
-    // Add a subtle dark gradient on the left side to make white text readable
-    const gradient = ctx.createLinearGradient(0, 0, CANVAS_WIDTH * 0.6, 0);
-    gradient.addColorStop(0, 'rgba(0,0,0,0.6)');
-    gradient.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    
-    const bottomGradient = ctx.createLinearGradient(0, CANVAS_HEIGHT * 0.5, 0, CANVAS_HEIGHT);
-    bottomGradient.addColorStop(0, 'rgba(0,0,0,0)');
-    bottomGradient.addColorStop(1, 'rgba(0,0,0,0.7)');
-    ctx.fillStyle = bottomGradient;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    // 3. Prepare Overlay Canvas (The beige mask)
-    overlayCtx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    
-    const boxWidth = 320;
-    const boxX = CANVAS_WIDTH - boxWidth;
-    
-    // Draw the solid beige block
-    overlayCtx.globalCompositeOperation = 'source-over';
-    overlayCtx.fillStyle = BEIGE_COLOR;
-    // We add a little margin or maybe it's flush to the right. Looks flush in reference.
-    // Wait, the reference has some spacing? No, flush right.
-    // Wait, the reference has some weird shapes at the top and bottom of the beige box? 
-    // Actually, looking at the image, the beige box is a bit separated from the top/bottom?
-    // Let's just draw it full height. But maybe add some padding for the "It's My" text.
-    overlayCtx.fillRect(boxX, 0, boxWidth, CANVAS_HEIGHT);
-
-    // 4. Punch out the big text
-    overlayCtx.globalCompositeOperation = 'destination-out';
-    
-    const bigText = bigTextInput.value.toUpperCase();
-    const chars = bigText.split('');
-    
-    // Font settings for big text
-    // We need an extremely bold, condensed font if possible. 'Arial Black' or 'Impact'
-    overlayCtx.font = '900 280px "Inter", "Arial Black", sans-serif';
-    overlayCtx.textAlign = 'center';
-    overlayCtx.textBaseline = 'middle';
-    
-    // Calculate vertical spacing
-    // We have height = 1350. Let's say top padding 300, bottom padding 100.
-    const startYPos = 350; 
-    const endYPos = CANVAS_HEIGHT - 150;
-    const availableHeight = endYPos - startYPos;
-    
-    let step = 0;
-    if (chars.length > 1) {
-        step = availableHeight / (chars.length - 1);
-    } else {
-        step = availableHeight;
-    }
-
-    const centerX = boxX + (boxWidth / 2);
-    
-    chars.forEach((char, index) => {
-        const y = startYPos + (index * step);
-        // If chars are too many, we might need to reduce font size. Let's assume ~5 chars like DREAM.
-        overlayCtx.fillText(char, centerX, y);
-    });
-
-    // 5. Draw "It's My" on overlay in dark text
-    overlayCtx.globalCompositeOperation = 'source-over';
-    overlayCtx.fillStyle = DARK_TEXT;
-    overlayCtx.font = '500 48px Inter';
-    overlayCtx.textAlign = 'center';
-    overlayCtx.fillText(topRightInput.value, centerX, 150);
-
-    // 6. Draw Overlay onto Main Canvas
-    ctx.drawImage(overlayCanvas, 0, 0);
-
-    // 7. Draw other texts directly on Main Canvas (over image, left side)
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-
-    // Top Left: "A NETFLIX ORIGINAL SERIES"
-    ctx.font = '600 24px Inter';
-    ctx.letterSpacing = '2px';
-    ctx.fillStyle = '#e50914'; // Netflix red for the "A NETFLIX" part maybe? Or just white. Let's stick to white or custom.
-    // The reference has "A NETFLIX ORIGINAL SERIES" with NETFLIX in red.
-    // To make it simple, let's just make it all white as before. Or I can do it!
-    // Actually, setting letterSpacing on ctx works in modern browsers.
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(topLeftInput.value, 80, 150);
-    ctx.letterSpacing = '0px'; // reset
-
-    // Bottom Left Title
-    const titleLines = bottomTitleInput.value.split('\\n'); // Allow user to use \n? Or just split by newline if it's textarea. It's input, so maybe we auto-wrap or just print.
-    // The reference has "SETIAP ORANG \n PASTI PUNYA MIMPI"
-    ctx.font = '900 36px "Times New Roman", Times, serif'; // Looks like a serif font in the reference!
-    
-    // Let's split title by hardcoded words or just take input.
-    let titleY = CANVAS_HEIGHT - 380;
-    const titles = bottomTitleInput.value.split('\n'); // if textarea. We used input, so let's check for \n
-    // Actually let's use a function to split text if needed, but for simplicity, we can just split by "PASTI" or let the user type lines?
-    // Let's replace literal '\n' with actual newline
-    const parsedTitles = bottomTitleInput.value.replace(/\\n/g, '\n').split('\n');
-    parsedTitles.forEach(line => {
-        ctx.fillText(line, 80, titleY);
-        titleY += 45;
-    });
-
-    // Bottom Body
-    ctx.font = '400 24px Inter';
-    let bodyY = titleY + 20;
-    const bodyLines = bottomBodyInput.value.split('\n');
-    bodyLines.forEach(line => {
-        ctx.fillText(line, 80, bodyY);
-        bodyY += 35;
-    });
 }
 
 function downloadCanvas() {
     const dataURL = canvas.toDataURL('image/png');
     const link = document.createElement('a');
-    link.download = 'facecard_july_award.png';
+    link.download = 'robolution_card.png';
     link.href = dataURL;
     document.body.appendChild(link);
     link.click();
