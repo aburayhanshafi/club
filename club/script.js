@@ -3,320 +3,345 @@ const ctx = canvas.getContext('2d');
 
 // Form inputs
 const imageUpload = document.getElementById('image-upload');
-const zoomSlider = document.getElementById('zoom-slider');
-const userNameInput = document.getElementById('user-name');
+const zoomSlider  = document.getElementById('zoom-slider');
 const downloadBtn = document.getElementById('download-btn');
 const activeLayerHint = document.getElementById('active-layer-indicator');
+const overlayHint = document.getElementById('overlay-hint');
+const photoControls = document.getElementById('photo-controls');
+const uploadLabel = document.getElementById('upload-label');
 
-// State
-let userPhoto = null;
-let photoX = 0, photoY = 0, photoScale = 1;
+// =====================================================
+// STATE
+// =====================================================
+let userPhoto  = null;
+let photoX     = 0, photoY = 0, photoScale = 1;
 let isDragging = false;
 let startX, startY;
 
-// Constants for layout
-const CANVAS_WIDTH = 1080;
-const CANVAS_HEIGHT = 1350;
+// Frame image
+let frameImage = null;
 
 // =====================================================
-// LAYOUT COORDINATES - Adjust these to match template
+// CANVAS SIZE — matches the frame image aspect ratio (1279:1600)
 // =====================================================
-const PHOTO_BOX = { x: 68, y: 255, w: 480, h: 590, radius: 22 };
-const NAME_BOX  = { x: 62, y: 875, w: 490, h: 80 };
+const CANVAS_W = 960;
+const CANVAS_H = 1200;
+canvas.width  = CANVAS_W;
+canvas.height = CANVAS_H;
 
-// Initial draw
-drawBackground();
+// =====================================================
+// WHITE BOX COORDINATES inside the Mechanical Carnival frame
+// Frame original: 1279 × 1600
+// Canvas: 960 × 1200 (scale = 960/1279 = 0.75, 1200/1600 = 0.75)
+// White area in original: approx x=168, y=352, w=958, h=680
+// Scaled to canvas: x*0.75, y*0.75
+// =====================================================
+const PHOTO_BOX = {
+    x: 126,   // 168 * 0.75
+    y: 264,   // 352 * 0.75
+    w: 718,   // 958 * 0.75
+    h: 510,   // 680 * 0.75
+    radius: 16
+};
 
-// Event Listeners
-imageUpload.addEventListener('change', handleImageUpload);
-zoomSlider.addEventListener('input', (e) => { photoScale = parseFloat(e.target.value); draw(); });
-userNameInput.addEventListener('input', draw);
-downloadBtn.addEventListener('click', downloadCanvas);
+// =====================================================
+// LOAD FRAME IMAGE
+// =====================================================
+function loadFrame() {
+    frameImage = new Image();
+    frameImage.onload = () => {
+        draw();
+    };
+    frameImage.onerror = () => {
+        console.warn('Frame image failed to load');
+        draw();
+    };
+    // Use base64 embedded data URL (works with file:// protocol, no CORS issues)
+    if (typeof FRAME_DATA_URL !== 'undefined') {
+        frameImage.src = FRAME_DATA_URL;
+    } else {
+        // Fallback: try loading from file
+        frameImage.src = 'frame.jpg';
+    }
+}
 
-// Drag
-canvas.addEventListener('mousedown', startDrag);
-canvas.addEventListener('mousemove', doDrag);
-window.addEventListener('mouseup', endDrag);
-canvas.addEventListener('touchstart', (e) => { if(e.touches.length===1) startDrag(e.touches[0]); }, {passive:false});
-canvas.addEventListener('touchmove', (e) => { if(e.touches.length===1){ e.preventDefault(); doDrag(e.touches[0]); } }, {passive:false});
-window.addEventListener('touchend', endDrag);
+// =====================================================
+// MAIN DRAW FUNCTION
+// =====================================================
+function draw() {
+    ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
-// ===========================
-// DRAW BACKGROUND (No image)
-// ===========================
-function drawBackground() {
-    // Main dark purple background
-    const bg = ctx.createLinearGradient(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    bg.addColorStop(0,   '#0d0630');
-    bg.addColorStop(0.5, '#130a40');
-    bg.addColorStop(1,   '#0a051e');
+    // 1. Draw background (dark blue matching the frame)
+    const bg = ctx.createLinearGradient(0, 0, CANVAS_W, CANVAS_H);
+    bg.addColorStop(0, '#0e1f4a');
+    bg.addColorStop(0.5, '#132060');
+    bg.addColorStop(1, '#0a1535');
     ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-    // Decorative glowing circles (background orbs)
-    drawOrb(800, 200, 280, 'rgba(120,40,255,0.18)');
-    drawOrb(100, 1100, 320, 'rgba(80,20,200,0.14)');
-    drawOrb(900, 900, 200, 'rgba(247,210,58,0.06)');
+    // 2. Draw user photo FIRST (it goes BEHIND the frame)
+    if (userPhoto) {
+        ctx.save();
+        // Clip to the white box area
+        roundRectPath(PHOTO_BOX.x, PHOTO_BOX.y, PHOTO_BOX.w, PHOTO_BOX.h, PHOTO_BOX.radius);
+        ctx.clip();
+        ctx.drawImage(
+            userPhoto,
+            photoX, photoY,
+            userPhoto.width  * photoScale,
+            userPhoto.height * photoScale
+        );
+        ctx.restore();
+    } else {
+        // Placeholder when no photo uploaded
+        drawPlaceholder();
+    }
 
-    // Top: Robolution logo text area
-    // Yellow top bar
-    ctx.fillStyle = '#f7d23a';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, 14);
+    // 3. Draw the frame ON TOP of the photo
+    if (frameImage && frameImage.complete && frameImage.naturalWidth > 0) {
+        ctx.drawImage(frameImage, 0, 0, CANVAS_W, CANVAS_H);
+    } else {
+        // Fallback: draw a minimal frame outline so the tool is still usable
+        drawFallbackFrame();
+    }
+}
 
-    // "ROBOLUTION" title
+// =====================================================
+// PLACEHOLDER (before photo is uploaded)
+// =====================================================
+function drawPlaceholder() {
     ctx.save();
-    ctx.font = '900 96px Inter, Arial';
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'left';
-    ctx.fillText('ROBOLUTION', 60, 120);
-    // "2025" in yellow
-    ctx.fillStyle = '#f7d23a';
-    ctx.font = '900 96px Inter, Arial';
-    ctx.fillText('2025', 60, 210);
-    ctx.restore();
+    roundRectPath(PHOTO_BOX.x, PHOTO_BOX.y, PHOTO_BOX.w, PHOTO_BOX.h, PHOTO_BOX.radius);
 
-    // Horizontal divider line
-    ctx.strokeStyle = '#f7d23a';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(60, 230);
-    ctx.lineTo(520, 230);
-    ctx.stroke();
-
-    // "Club Representative" text
-    ctx.save();
-    ctx.font = '500 28px Inter, Arial';
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.textAlign = 'left';
-    ctx.fillText('Club Representative Card', 60, 265);
-    ctx.restore();
-
-    // Right side decorative panel
-    const panelGrad = ctx.createLinearGradient(580, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    panelGrad.addColorStop(0, 'rgba(247,210,58,0.08)');
-    panelGrad.addColorStop(1, 'rgba(120,40,255,0.12)');
-    ctx.fillStyle = panelGrad;
-    roundRect(ctx, 580, 240, 460, 860, 24);
+    // Subtle fill
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
     ctx.fill();
 
-    ctx.strokeStyle = 'rgba(247,210,58,0.25)';
-    ctx.lineWidth = 2;
-    roundRect(ctx, 580, 240, 460, 860, 24);
+    // Dashed border
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = 'rgba(247,201,72,0.5)';
+    ctx.setLineDash([12, 8]);
     ctx.stroke();
+    ctx.setLineDash([]);
 
-    // Right side "WUB ROBOLUTION" watermark text (vertical)
-    ctx.save();
-    ctx.font = '700 34px Inter, Arial';
-    ctx.fillStyle = 'rgba(247,210,58,0.35)';
+    // Upload icon
+    const cx = PHOTO_BOX.x + PHOTO_BOX.w / 2;
+    const cy = PHOTO_BOX.y + PHOTO_BOX.h / 2;
+
+    ctx.fillStyle = 'rgba(247,201,72,0.7)';
+    ctx.font = '700 52px Inter, Arial';
     ctx.textAlign = 'center';
-    ctx.translate(810, 680);
-    ctx.rotate(-Math.PI / 2);
-    ctx.fillText('ROBOLUTION 2025', 0, 0);
-    ctx.restore();
+    ctx.textBaseline = 'middle';
+    ctx.fillText('📷', cx, cy - 30);
 
-    // Bottom footer bar
-    const footerGrad = ctx.createLinearGradient(0, 1260, 0, 1350);
-    footerGrad.addColorStop(0, 'rgba(247,210,58,0.0)');
-    footerGrad.addColorStop(1, 'rgba(247,210,58,0.15)');
-    ctx.fillStyle = footerGrad;
-    ctx.fillRect(0, 1260, CANVAS_WIDTH, 90);
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.font = '700 22px Inter, Arial';
+    ctx.fillText('আপনার ছবি এখানে বসবে', cx, cy + 30);
 
-    ctx.fillStyle = '#f7d23a';
-    ctx.fillRect(0, 1336, CANVAS_WIDTH, 14);
-
-    // "POWERED BY WUB" footer
-    ctx.save();
-    ctx.font = '600 22px Inter, Arial';
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.textAlign = 'center';
-    ctx.fillText('WORLD UNIVERSITY OF BANGLADESH', CANVAS_WIDTH / 2, 1315);
+    ctx.font = '500 16px Inter, Arial';
+    ctx.fillText('নিজের বা গ্রুপ ছবি আপলোড করুন', cx, cy + 62);
+
     ctx.restore();
+}
 
-    // Name placeholder area
-    ctx.strokeStyle = 'rgba(247,210,58,0.3)';
-    ctx.lineWidth = 1.5;
-    roundRect(ctx, NAME_BOX.x - 10, NAME_BOX.y - 12, NAME_BOX.w + 20, NAME_BOX.h + 24, 8);
+// =====================================================
+// FALLBACK FRAME (if frame.png not loaded)
+// =====================================================
+function drawFallbackFrame() {
+    // Dark navy border panels
+    ctx.fillStyle = '#0e1f4a';
+    // Top bar
+    ctx.fillRect(0, 0, CANVAS_W, 135);
+    // Bottom bar
+    ctx.fillRect(0, CANVAS_H - 175, CANVAS_W, 175);
+    // Left strip
+    ctx.fillRect(0, 135, 148, CANVAS_H - 310);
+    // Right strip
+    ctx.fillRect(CANVAS_W - 148, 135, 148, CANVAS_H - 310);
+
+    // White photo box border
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 4;
+    roundRectPath(PHOTO_BOX.x, PHOTO_BOX.y, PHOTO_BOX.w, PHOTO_BOX.h, PHOTO_BOX.radius);
     ctx.stroke();
+
+    // Title text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '900 52px Inter, Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('MECHANICAL', CANVAS_W / 2, 48);
+
+    ctx.fillStyle = '#c0392b';
+    ctx.font = '900 58px Inter, Arial';
+    ctx.fillText('CARNIVAL', CANVAS_W / 2, 96);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 36px Inter, Arial';
+    ctx.fillText('2026', CANVAS_W / 2, 126);
+
+    // Bottom hashtag
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 26px Inter, Arial';
+    ctx.fillText('SHARE YOUR', CANVAS_W / 2, CANVAS_H - 105);
+    ctx.fillStyle = '#f7c948';
+    ctx.font = '700 20px Inter, Arial';
+    ctx.fillText('#MECHANICALCARNIVAL2026 MOMENT!', CANVAS_W / 2, CANVAS_H - 70);
 }
 
-function drawOrb(cx, cy, r, color) {
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-    g.addColorStop(0, color);
-    g.addColorStop(1, 'transparent');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
-}
-
-function roundRect(ctx, x, y, w, h, r) {
+// =====================================================
+// ROUNDED RECT PATH HELPER
+// =====================================================
+function roundRectPath(x, y, w, h, r) {
     ctx.beginPath();
     ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.arcTo(x + w, y,     x + w, y + r,     r);
     ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-    ctx.arcTo(x, y + h, x, y + h - r, r);
-    ctx.arcTo(x, y, x + r, y, r);
+    ctx.arcTo(x,     y + h, x,     y + h - r, r);
+    ctx.arcTo(x,     y,     x + r, y,         r);
     ctx.closePath();
 }
 
-// ===========================
-// MAIN DRAW FUNCTION
-// ===========================
-function draw() {
-    // Always redraw background first
-    drawBackground();
-
-    // Draw photo (masked to PHOTO_BOX)
-    if (userPhoto) {
-        ctx.save();
-        roundRect(ctx, PHOTO_BOX.x, PHOTO_BOX.y, PHOTO_BOX.w, PHOTO_BOX.h, PHOTO_BOX.radius);
-        ctx.clip();
-        ctx.translate(photoX, photoY);
-        ctx.scale(photoScale, photoScale);
-        ctx.drawImage(userPhoto, 0, 0);
-        ctx.restore();
-
-        // White border around photo
-        ctx.save();
-        roundRect(ctx, PHOTO_BOX.x, PHOTO_BOX.y, PHOTO_BOX.w, PHOTO_BOX.h, PHOTO_BOX.radius);
-        ctx.lineWidth = 8;
-        ctx.strokeStyle = '#ffffff';
-        ctx.stroke();
-        // Gold inner glow
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = 'rgba(247,210,58,0.6)';
-        ctx.stroke();
-        ctx.restore();
-    } else {
-        // Placeholder area for photo
-        ctx.save();
-        roundRect(ctx, PHOTO_BOX.x, PHOTO_BOX.y, PHOTO_BOX.w, PHOTO_BOX.h, PHOTO_BOX.radius);
-        ctx.fillStyle = 'rgba(255,255,255,0.04)';
-        ctx.fill();
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-        ctx.setLineDash([10, 8]);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle = 'rgba(255,255,255,0.25)';
-        ctx.font = '500 26px Inter, Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('Upload your photo', PHOTO_BOX.x + PHOTO_BOX.w/2, PHOTO_BOX.y + PHOTO_BOX.h/2);
-        ctx.restore();
-    }
-
-    // Draw Name
-    const name = userNameInput.value.trim();
-    if (name !== '') {
-        ctx.save();
-        // Clear old name area
-        ctx.fillStyle = '#0f0838';
-        ctx.fillRect(NAME_BOX.x - 12, NAME_BOX.y - 14, NAME_BOX.w + 24, NAME_BOX.h + 28);
-
-        // Glow border
-        ctx.strokeStyle = '#f7d23a';
-        ctx.lineWidth = 2;
-        roundRect(ctx, NAME_BOX.x - 10, NAME_BOX.y - 12, NAME_BOX.w + 20, NAME_BOX.h + 24, 8);
-        ctx.stroke();
-
-        // Draw name text
-        ctx.fillStyle = '#ffffff';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        // Auto-fit font size
-        let fontSize = 52;
-        ctx.font = `900 ${fontSize}px Inter, Arial`;
-        while (ctx.measureText(name).width > NAME_BOX.w - 20 && fontSize > 24) {
-            fontSize -= 2;
-            ctx.font = `900 ${fontSize}px Inter, Arial`;
-        }
-        ctx.fillText(name, NAME_BOX.x + NAME_BOX.w / 2, NAME_BOX.y + NAME_BOX.h / 2);
-
-        // Small "NAME" label above
-        ctx.font = '600 18px Inter, Arial';
-        ctx.fillStyle = '#f7d23a';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillText('NAME', NAME_BOX.x, NAME_BOX.y - 38);
-
-        ctx.restore();
-    }
-}
-
-// ===========================
+// =====================================================
 // IMAGE UPLOAD
-// ===========================
-function handleImageUpload(e) {
+// =====================================================
+imageUpload.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
+
     const reader = new FileReader();
     reader.onload = (ev) => {
         const img = new Image();
         img.onload = () => {
             userPhoto = img;
+
+            // Auto-fit the photo to fill the photo box
             const scaleX = PHOTO_BOX.w / img.width;
             const scaleY = PHOTO_BOX.h / img.height;
             photoScale = Math.max(scaleX, scaleY);
-            photoX = PHOTO_BOX.x + (PHOTO_BOX.w - img.width * photoScale) / 2;
+
+            // Center inside the box
+            photoX = PHOTO_BOX.x + (PHOTO_BOX.w - img.width  * photoScale) / 2;
             photoY = PHOTO_BOX.y + (PHOTO_BOX.h - img.height * photoScale) / 2;
-            zoomSlider.min = photoScale * 0.3;
-            zoomSlider.max = photoScale * 5;
+
+            // Update zoom slider range
+            zoomSlider.min   = (photoScale * 0.3).toFixed(3);
+            zoomSlider.max   = (photoScale * 5).toFixed(3);
             zoomSlider.value = photoScale;
-            document.querySelector('.canvas-overlay-hint').style.display = 'none';
-            showHint();
+            zoomSlider.step  = (photoScale * 0.01).toFixed(4);
+
+            // Show controls
+            photoControls.style.display = 'flex';
+            overlayHint.style.display   = 'none';
+            uploadLabel.classList.add('has-image');
+
+            // Change upload label text
+            uploadLabel.querySelector('span').textContent = '✅ ছবি আপলোড হয়েছে';
+            uploadLabel.querySelector('small').textContent = 'নতুন ছবি দিতে আবার ক্লিক করুন';
+
+            showHint('📸 ছবি drag করে সরান, zoom করুন');
             draw();
         };
         img.src = ev.target.result;
     };
     reader.readAsDataURL(file);
-}
+});
 
-function showHint() {
-    activeLayerHint.textContent = 'Drag to reposition photo';
-    activeLayerHint.classList.add('show');
-    setTimeout(() => activeLayerHint.classList.remove('show'), 2000);
-}
+// =====================================================
+// ZOOM
+// =====================================================
+zoomSlider.addEventListener('input', (e) => {
+    const newScale = parseFloat(e.target.value);
+    // Keep centered while zooming
+    const centerX = photoX + (userPhoto.width  * photoScale) / 2;
+    const centerY = photoY + (userPhoto.height * photoScale) / 2;
+    photoScale = newScale;
+    photoX = centerX - (userPhoto.width  * photoScale) / 2;
+    photoY = centerY - (userPhoto.height * photoScale) / 2;
+    draw();
+});
 
-// ===========================
-// DRAG
-// ===========================
-function getCoords(e) {
+// =====================================================
+// DRAG TO REPOSITION
+// =====================================================
+function getCanvasCoords(e) {
     const rect = canvas.getBoundingClientRect();
     return {
-        x: (e.clientX - rect.left) * (canvas.width / rect.width),
-        y: (e.clientY - rect.top) * (canvas.height / rect.height)
+        x: (e.clientX - rect.left) * (CANVAS_W / rect.width),
+        y: (e.clientY - rect.top)  * (CANVAS_H / rect.height)
     };
 }
 
-function startDrag(e) {
+canvas.addEventListener('mousedown', (e) => {
     if (!userPhoto) return;
-    const {x, y} = getCoords(e);
-    if (x >= PHOTO_BOX.x && x <= PHOTO_BOX.x + PHOTO_BOX.w &&
-        y >= PHOTO_BOX.y && y <= PHOTO_BOX.y + PHOTO_BOX.h) {
-        isDragging = true;
-        startX = x - photoX;
-        startY = y - photoY;
-    }
-}
+    const {x, y} = getCanvasCoords(e);
+    // Allow drag anywhere on canvas
+    isDragging = true;
+    startX = x - photoX;
+    startY = y - photoY;
+    canvas.style.cursor = 'grabbing';
+});
 
-function doDrag(e) {
-    if (!isDragging) return;
-    const {x, y} = getCoords(e);
+canvas.addEventListener('mousemove', (e) => {
+    if (!isDragging || !userPhoto) return;
+    const {x, y} = getCanvasCoords(e);
     photoX = x - startX;
     photoY = y - startY;
     draw();
+});
+
+window.addEventListener('mouseup', () => {
+    isDragging = false;
+    canvas.style.cursor = 'grab';
+});
+
+// Touch support
+canvas.addEventListener('touchstart', (e) => {
+    if (!userPhoto || e.touches.length !== 1) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const {x, y} = getCanvasCoords(touch);
+    isDragging = true;
+    startX = x - photoX;
+    startY = y - photoY;
+}, {passive: false});
+
+canvas.addEventListener('touchmove', (e) => {
+    if (!isDragging || e.touches.length !== 1) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const {x, y} = getCanvasCoords(touch);
+    photoX = x - startX;
+    photoY = y - startY;
+    draw();
+}, {passive: false});
+
+window.addEventListener('touchend', () => { isDragging = false; });
+
+// =====================================================
+// HINT INDICATOR
+// =====================================================
+function showHint(msg) {
+    activeLayerHint.textContent = msg;
+    activeLayerHint.classList.add('show');
+    setTimeout(() => activeLayerHint.classList.remove('show'), 2500);
 }
 
-function endDrag() { isDragging = false; }
-
-// ===========================
+// =====================================================
 // DOWNLOAD
-// ===========================
-function downloadCanvas() {
+// =====================================================
+downloadBtn.addEventListener('click', () => {
     const link = document.createElement('a');
-    link.download = 'robolution_card.png';
+    link.download = 'MechanicalCarnival2026_Frame.png';
     link.href = canvas.toDataURL('image/png');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-}
+    showHint('✅ Download সম্পন্ন হয়েছে!');
+});
+
+// =====================================================
+// INIT — load frame then draw
+// =====================================================
+loadFrame();
