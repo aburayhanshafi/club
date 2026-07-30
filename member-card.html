@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WUB Mechanical Club — Member ID Card Generator</title>
+    <meta name="description" content="Generate your WUB Mechanical Club Member ID Card. Fill in your information and download your official member card.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Rajdhani:wght@600;700&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="member-card.css">
+</head>
+<body>
+    <div class="app-container">
+
+        <!-- ===== SIDEBAR ===== -->
+        <aside class="sidebar">
+            <!-- Brand Header -->
+            <div class="brand">
+                <div class="brand-logo-row">
+                    <div class="gear-icon">⚙️</div>
+                    <div>
+                        <div class="brand-badge">WUB</div>
+                        <h1>Mechanical <span>Club</span></h1>
+                    </div>
+                </div>
+                <p class="brand-sub">Member ID Card Generator</p>
+                <p class="brand-tagline">ESTD. 2024 · INNOVATE · BUILD · EXCEL</p>
+            </div>
+
+            <!-- Nav Link to Frame Generator -->
+            <a href="index.html" class="nav-link">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+                Photo Frame Generator
+            </a>
+
+            <!-- Photo Upload -->
+            <div class="control-section">
+                <h3>📸 Member Photo</h3>
+                <label for="photo-upload" class="upload-btn" id="upload-label">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
+                    <span>Upload Member Photo</span>
+                    <small>JPG, PNG, WEBP — portrait recommended</small>
+                </label>
+                <input type="file" id="photo-upload" accept="image/jpeg,image/png,image/webp" hidden>
+            </div>
+
+            <!-- Member Information Form -->
+            <div class="control-section">
+                <h3>📋 Member Information</h3>
+
+                <div class="form-group">
+                    <label for="member-name">Full Name <span class="required">*</span></label>
+                    <input type="text" id="member-name" placeholder="e.g. Md. Rakibul Islam" maxlength="40">
+                </div>
+
+                <div class="form-group">
+                    <label for="member-id">Member ID <span class="required">*</span></label>
+                    <input type="text" id="member-id" placeholder="e.g. WUBMC2024001" maxlength="20">
+                </div>
+
+                <div class="form-group">
+                    <label for="member-dept">Department <span class="required">*</span></label>
+                    <select id="member-dept">
+                        <option value="">— Select Department —</option>
+                        <option value="MECHANICAL ENGINEERING">Mechanical Engineering</option>
+                        <option value="CIVIL ENGINEERING">Civil Engineering</option>
+                        <option value="EEE">Electrical & Electronic Eng.</option>
+                        <option value="CSE">Computer Science & Eng.</option>
+                        <option value="TEXTILE ENGINEERING">Textile Engineering</option>
+                        <option value="ARCHITECTURE">Architecture</option>
+                        <option value="BBA">Business Administration</option>
+                        <option value="LAW">Law</option>
+                        <option value="OTHER">Other</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="member-batch">Batch / Session</label>
+                    <input type="text" id="member-batch" placeholder="e.g. 2024-25" maxlength="15">
+                </div>
+
+                <div class="form-group">
+                    <label for="member-role">Club Role</label>
+                    <select id="member-role">
+                        <option value="GENERAL MEMBER">General Member</option>
+                        <option value="EXECUTIVE MEMBER">Executive Member</option>
+                        <option value="JOINT SECRETARY">Joint Secretary</option>
+                        <option value="SECRETARY">Secretary</option>
+                        <option value="VICE PRESIDENT">Vice President</option>
+                        <option value="PRESIDENT">President</option>
+                        <option value="ADVISOR">Advisor</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="valid-thru">Valid Thru</label>
+                        <input type="text" id="valid-thru" placeholder="DEC 2026" maxlength="10" value="DEC 2026">
+                    </div>
+                    <div class="form-group">
+                        <label for="card-number">Card No.</label>
+                        <input type="text" id="card-number" placeholder="001" maxlength="6" value="001">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Generate Button -->
+            <button id="generate-btn" class="primary-btn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                Generate Card
+            </button>
+
+            <!-- Download Button -->
+            <button id="download-btn" class="download-btn" disabled>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Download Card (PNG)
+            </button>
+
+            <div class="footer-tag">
+                <p>#WUBMechanicalClub</p>
+                <small>World University of Bangladesh</small>
+            </div>
+        </aside>
+
+        <!-- ===== PREVIEW AREA ===== -->
+        <main class="preview-area">
+            <div class="canvas-wrapper">
+                <div class="canvas-label">Live Preview</div>
+                <canvas id="card-canvas"></canvas>
+                <div id="toast" class="toast"></div>
+            </div>
+        </main>
+    </div>
+
+    <script src="member-card.js"></script>
+</body>
+</html>
